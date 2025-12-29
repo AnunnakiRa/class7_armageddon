@@ -58,12 +58,12 @@ PART III — Monitoring & Alerting (SNS + PagerDuty Simulation)
     SNS Topic
     Name: lab-db-incidents
     aws sns create-topic --name lab-db-incidents
-
     Email Subscription (PagerDuty Simulation)
-      aws sns subscribe \
-    --topic-arn <TOPIC_ARN> \
-    --protocol email \
-    --notification-endpoint your-email@example.com
+
+          aws sns subscribe \
+            --topic-arn <TOPIC_ARN> \
+            --protocol email \
+            --notification-endpoint your-email@example.com
 
     This simulates PagerDuty / OpsGenie paging an engineer.
 
@@ -71,8 +71,8 @@ PART III — Monitoring & Alerting (SNS + PagerDuty Simulation)
 Alarm Concept
 Trigger when:
   DB connection errors ≥ 3 in 5 minutes
-
 Alarm Creation (example)
+
         aws cloudwatch put-metric-alarm \
           --alarm-name lab-db-connection-failure \
           --metric-name DBConnectionErrors \
@@ -104,9 +104,10 @@ Expected:
 
 RUNBOOK SECTION 2 — Observe
 2.1 Check Application Logs
-  aws logs filter-log-events \
-  --log-group-name /aws/ec2/lab-rds-app \
-  --filter-pattern "ERROR"
+
+      aws logs filter-log-events \
+      --log-group-name /aws/ec2/lab-rds-app \
+      --filter-pattern "ERROR"
 
 Expected:
   Clear DB connection failure messages
@@ -120,16 +121,18 @@ This classification is graded.
 
 RUNBOOK SECTION 3 — Validate Configuration Sources
 3.1 Retrieve Parameter Store Values
-  aws ssm get-parameters \
-    --names /lab/db/endpoint /lab/db/port /lab/db/name \
-    --with-decryption
+    
+      aws ssm get-parameters \
+        --names /lab/db/endpoint /lab/db/port /lab/db/name \
+        --with-decryption
 
 Expected:
   Endpoint + port returned
 
 3.2 Retrieve Secrets Manager Values
-  aws secretsmanager get-secret-value \
-  --secret-id lab/rds/mysql
+
+      aws secretsmanager get-secret-value \
+      --secret-id lab/rds/mysql
 
 Expected:
   Username/password visible
@@ -167,17 +170,19 @@ Expected:
 
 RUNBOOK SECTION 6 — Post-Incident Validation
 6.1 Confirm Alarm Clears
+
     aws cloudwatch describe-alarms \
-  --alarm-name lab-db-connection-failure \
-  --query "MetricAlarms[].StateValue"
+      --alarm-name lab-db-connection-failure \
+      --query "MetricAlarms[].StateValue"
 
 Expected:
     OK
 
 6.2 Confirm Logs Normalize
+
     aws logs filter-log-events \
-  --log-group-name /aws/ec2/lab-rds-app \
-  --filter-pattern "ERROR"
+      --log-group-name /aws/ec2/lab-rds-app \
+      --filter-pattern "ERROR"
 
 Expected:
     No new errors
