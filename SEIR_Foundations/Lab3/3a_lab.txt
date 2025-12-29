@@ -93,4 +93,17 @@ B) Tokyo (minimal additions) — TGW + peering request---> Folder tokyo_tgw.tf
     (Tokyo already has Lab 2 infra + RDS.)
 C) São Paulo (new deployment) — TGW + accept peering + attach VPC---> Folder sao_paulo_tgw.tf
     (São Paulo is “Lab 2 minus DB”, plus TGW wiring.)
+D) Routes (the “it works or it doesn’t” part)
+    São Paulo route tables --> sao_paulo_routes.tf
+        Add in private subnet route tables:  
+            Destination: Tokyo VPC CIDR (e.g., 10.x.x.x/xx)
+            Target: São Paulo TGW
+    Tokyo route tables---> Tokyo_routes.tf
+        Add in Tokyo private route tables:
+            Destination: São Paulo VPC CIDR
+            Target: Tokyo TGW
+E) RDS Security Group change in Tokyo (allows São Paulo)---> aws_security_group.chewbacca_rds_sg01.tf
+    This is the part students always forget because they are stuck in waffle house with them carbs:
+
+
 
