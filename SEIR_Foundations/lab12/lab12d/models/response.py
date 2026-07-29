@@ -1,0 +1,7 @@
+ThreatInvestigationResponse
+
+ProviderHealthResponse
+
+InvestigationStatus
+
+HealthCheckResponse
