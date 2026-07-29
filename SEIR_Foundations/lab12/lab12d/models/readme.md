@@ -1,4 +1,4 @@
-# Gen2X Domain Models
+# Domain Models
 
 ## Overview
 
