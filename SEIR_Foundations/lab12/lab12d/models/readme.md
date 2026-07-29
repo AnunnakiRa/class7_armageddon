@@ -23,7 +23,7 @@ The `models` package intentionally contains **data**, not business logic.
 
 # Design Philosophy
 
-Gen2X follows a layered architecture.
+This follows a layered architecture.
 
 ```text
                 Providers
