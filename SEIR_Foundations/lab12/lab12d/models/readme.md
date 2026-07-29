@@ -360,7 +360,7 @@ Because every package already shares the same domain language, new capabilities 
 
 # Summary
 
-The `models` package is the foundation of the Gen2X Security Engineering Platform.
+The `models` package is the foundation of the Balerica Security Engineering Platform.
 
 It defines the common language used by every investigation.
 
