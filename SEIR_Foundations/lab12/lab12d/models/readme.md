@@ -317,7 +317,7 @@ Examples:
 
 ## Reusability
 
-Every Agent within Gen2X uses the same domain models.
+Every Agent within this lab uses the same domain models.
 
 Future agents can reuse existing objects without redesigning data structures.
 
@@ -325,7 +325,7 @@ Future agents can reuse existing objects without redesigning data structures.
 
 # Educational Goals
 
-One objective of Gen2X is teaching students how enterprise software is structured.
+One objective of this lab is teaching students how enterprise software is structured.
 
 Rather than writing large procedural scripts, students learn to build systems composed of reusable components.
 
@@ -374,4 +374,4 @@ Renderers display models.
 
 Agents orchestrate models.
 
-By keeping these responsibilities separate, Gen2X remains modular, extensible, and easier to teach, test, and maintain.
+By keeping these responsibilities separate, Balerica remains modular, extensible, and easier to teach, test, and maintain.
