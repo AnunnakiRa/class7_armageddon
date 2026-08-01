@@ -1,6 +1,4 @@
-from pathlib import Path
-
-code = r'''#!/usr/bin/env python3
+#!/usr/bin/env python3
 
 """
 compliance_agent.py
