@@ -540,6 +540,180 @@ class PlatformComponent(Gen2XEnum):
 #
 # =============================================================================
 
+
+# =============================================================================
+# Platform Service
+# =============================================================================
+
+
+class PlatformService(Gen2XEnum):
+    """
+    Describes the shared runtime services the platform provides to its
+    components.
+
+    PlatformService answers one question:
+
+        "What common function does the platform offer?"
+
+    Services are the utilities every component may rely upon.
+
+    A service is NOT:
+
+        • A component
+
+            Components are subsystems. Services support them.
+
+        • A capability
+
+            Capabilities describe business value. Services describe
+            shared machinery.
+
+    Example
+
+        The Reporting component
+
+        uses the NOTIFICATION service
+
+        to deliver the EXECUTIVE_REPORTING capability.
+    """
+
+    # -------------------------------------------------------------------------
+    # Identity and Access
+    # -------------------------------------------------------------------------
+
+    AUTHENTICATION = "AUTHENTICATION"
+
+    AUTHORIZATION = "AUTHORIZATION"
+
+    SECRETS_MANAGEMENT = "SECRETS_MANAGEMENT"
+
+    # -------------------------------------------------------------------------
+    # Communication
+    # -------------------------------------------------------------------------
+
+    MESSAGING = "MESSAGING"
+
+    EVENT_BUS = "EVENT_BUS"
+
+    NOTIFICATION = "NOTIFICATION"
+
+    # -------------------------------------------------------------------------
+    # Operations
+    # -------------------------------------------------------------------------
+
+    SCHEDULING = "SCHEDULING"
+
+    LOGGING = "LOGGING"
+
+    METRICS = "METRICS"
+
+    TRACING = "TRACING"
+
+    ALERTING = "ALERTING"
+
+    # -------------------------------------------------------------------------
+    # Data
+    # -------------------------------------------------------------------------
+
+    PERSISTENCE = "PERSISTENCE"
+
+    CONFIGURATION = "CONFIGURATION"
+
+    # -------------------------------------------------------------------------
+    # General
+    # -------------------------------------------------------------------------
+
+    CUSTOM = "CUSTOM"
+
+    UNKNOWN = "UNKNOWN"
+
+    def describe(self) -> str:
+        """
+        Return a human-readable explanation of the platform service.
+        """
+
+        descriptions = {
+
+            PlatformService.AUTHENTICATION:
+                "Verifies the identity of users, agents, and systems.",
+
+            PlatformService.AUTHORIZATION:
+                "Determines what an authenticated identity may do.",
+
+            PlatformService.SECRETS_MANAGEMENT:
+                "Stores and retrieves credentials and sensitive material.",
+
+            PlatformService.MESSAGING:
+                "Moves information between platform components.",
+
+            PlatformService.EVENT_BUS:
+                "Distributes events to interested platform components.",
+
+            PlatformService.NOTIFICATION:
+                "Delivers information to humans and external systems.",
+
+            PlatformService.SCHEDULING:
+                "Executes work at defined times or intervals.",
+
+            PlatformService.LOGGING:
+                "Records platform activity for troubleshooting and audit.",
+
+            PlatformService.METRICS:
+                "Measures platform behavior over time.",
+
+            PlatformService.TRACING:
+                "Follows requests as they travel through the platform.",
+
+            PlatformService.ALERTING:
+                "Raises attention when defined conditions occur.",
+
+            PlatformService.PERSISTENCE:
+                "Stores platform information durably.",
+
+            PlatformService.CONFIGURATION:
+                "Provides settings that control platform behavior.",
+
+            PlatformService.CUSTOM:
+                "Application-defined platform service.",
+
+            PlatformService.UNKNOWN:
+                "Platform service has not yet been classified."
+
+        }
+
+        return descriptions[self]
+
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Every component needs
+# to log.
+#
+# Every component needs
+# configuration.
+#
+# Every component needs
+# to tell someone
+# when something happens.
+#
+# Should every component
+# build those things
+# itself?
+#
+# Absolutely not.
+#
+# Shared services exist
+# so components can focus
+# on their own responsibility.
+#
+# Build it once.
+#
+# Share it everywhere.
+#
+# =============================================================================
+
+
 # =============================================================================
 # Platform Capability
 # =============================================================================
