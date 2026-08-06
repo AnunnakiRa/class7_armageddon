@@ -108,6 +108,136 @@ from .base_enum import Gen2XEnum
 
 
 # =============================================================================
+# Platform Type
+# =============================================================================
+
+
+class PlatformType(Gen2XEnum):
+    """
+    Describes the external platform a provider observes or integrates
+    with.
+
+    PlatformType answers one question:
+
+        "Which platform does this observation come from?"
+
+    PlatformType describes the outside world.
+
+    The other enumerations in this module describe Gen2X itself.
+
+    Example
+
+        Wiz observes AWS.
+
+        GitHub Secret Scanning observes GITHUB.
+
+        An internal CMDB observes ON_PREMISES.
+    """
+
+    # -------------------------------------------------------------------------
+    # Cloud Platforms
+    # -------------------------------------------------------------------------
+
+    AWS = "AWS"
+
+    AZURE = "AZURE"
+
+    GCP = "GCP"
+
+    MULTI_CLOUD = "MULTI_CLOUD"
+
+    # -------------------------------------------------------------------------
+    # Source Platforms
+    # -------------------------------------------------------------------------
+
+    GITHUB = "GITHUB"
+
+    GITLAB = "GITLAB"
+
+    # -------------------------------------------------------------------------
+    # Infrastructure
+    # -------------------------------------------------------------------------
+
+    KUBERNETES = "KUBERNETES"
+
+    ON_PREMISES = "ON_PREMISES"
+
+    SAAS = "SAAS"
+
+    # -------------------------------------------------------------------------
+    # General
+    # -------------------------------------------------------------------------
+
+    OTHER = "OTHER"
+
+    UNKNOWN = "UNKNOWN"
+
+    def describe(self) -> str:
+        """
+        Return a human-readable explanation of the platform type.
+        """
+
+        descriptions = {
+
+            PlatformType.AWS:
+                "Amazon Web Services.",
+
+            PlatformType.AZURE:
+                "Microsoft Azure.",
+
+            PlatformType.GCP:
+                "Google Cloud Platform.",
+
+            PlatformType.MULTI_CLOUD:
+                "Spans more than one cloud platform.",
+
+            PlatformType.GITHUB:
+                "GitHub repositories and services.",
+
+            PlatformType.GITLAB:
+                "GitLab repositories and services.",
+
+            PlatformType.KUBERNETES:
+                "Kubernetes clusters and workloads.",
+
+            PlatformType.ON_PREMISES:
+                "On-premises infrastructure.",
+
+            PlatformType.SAAS:
+                "Software-as-a-Service applications.",
+
+            PlatformType.OTHER:
+                "Application-defined platform.",
+
+            PlatformType.UNKNOWN:
+                "Platform has not yet been classified."
+
+        }
+
+        return descriptions[self]
+
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Providers watch
+# different worlds.
+#
+# One watches AWS.
+#
+# One watches GitHub.
+#
+# One watches
+# the server room
+# down the hall.
+#
+# Evidence should always remember
+# which world it came from.
+#
+# =============================================================================
+
+
+# =============================================================================
 # Platform Role
 # =============================================================================
 
@@ -1545,6 +1675,8 @@ __all__ = [
     # -------------------------------------------------------------------------
     # Identity
     # -------------------------------------------------------------------------
+
+    "PlatformType",
 
     "PlatformRole",
 

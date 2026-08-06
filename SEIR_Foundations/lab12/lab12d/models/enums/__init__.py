@@ -375,6 +375,7 @@ from .cache_enums import (
 # =============================================================================
 
 from .platform_enums import (
+    PlatformType,
     PlatformRole,
     PlatformResponsibility,
     PlatformComponent,
@@ -488,6 +489,7 @@ __all__ = [
     # Platform Enumerations
     # -------------------------------------------------------------------------
 
+    "PlatformType",
     "PlatformRole",
     "PlatformResponsibility",
     "PlatformComponent",

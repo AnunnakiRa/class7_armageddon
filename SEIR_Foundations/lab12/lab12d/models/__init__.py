@@ -1,5 +1,4 @@
 """
-"""
 models/__init__.py
 
 Gen2X Domain Models

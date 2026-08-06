@@ -29,7 +29,7 @@ testable, and reusable across providers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from hashlib import sha256
 from typing import Any
@@ -44,6 +44,7 @@ from models.enums import (
     ThreatConfidence,
     ThreatSeverity,
 )
+from models.time_utils import utc_now
 
 
 # =============================================================================
@@ -72,11 +73,11 @@ class EvidenceIdentity:
     provider_version: str = "1.0.0"
 
     observed_at: datetime = field(
-        default_factory=datetime.utcnow
+        default_factory=utc_now
     )
 
     collected_at: datetime = field(
-        default_factory=datetime.utcnow
+        default_factory=utc_now
     )
 
     @property
@@ -503,11 +504,11 @@ class ThreatEvidence:
 
         return {
 
-            "identity": vars(self.identity),
+            "identity": asdict(self.identity),
 
-            "indicator": vars(self.indicator),
+            "indicator": asdict(self.indicator),
 
-            "source": vars(self.source),
+            "source": asdict(self.source),
 
             "context": {
 

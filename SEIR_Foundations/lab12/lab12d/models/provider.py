@@ -52,7 +52,7 @@ They do not execute provider logic.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -64,6 +64,7 @@ from models.enums import (
     ProviderType,
     ThreatCondition,
 )
+from models.time_utils import utc_now
 
 
 # =============================================================================
@@ -459,7 +460,7 @@ class Provider:
         self.statistics.total_requests += 1
         self.statistics.failed_requests += 1
 
-        self.health.status = ProviderStatus.FAILED
+        self.health.status = ProviderStatus.ERROR
         self.health.last_failure = utc_now()
         self.health.last_error = message
 
@@ -514,7 +515,7 @@ class Provider:
         Mark the provider as unavailable.
         """
 
-        self.health.status = ProviderStatus.FAILED
+        self.health.status = ProviderStatus.ERROR
         self.health.last_error = message
         self.health.last_failure = utc_now()
 
@@ -560,7 +561,7 @@ class Provider:
 
         return {
 
-            "identity": vars(self.identity),
+            "identity": asdict(self.identity),
 
             "capabilities": {
 
@@ -599,15 +600,15 @@ class Provider:
 
             },
 
-            "configuration": vars(
+            "configuration": asdict(
                 self.configuration
             ),
 
-            "health": vars(
+            "health": asdict(
                 self.health
             ),
 
-            "statistics": vars(
+            "statistics": asdict(
                 self.statistics
             ),
 
