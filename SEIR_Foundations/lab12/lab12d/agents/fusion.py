@@ -1,1381 +1,1481 @@
+#!/usr/bin/env python3
+
 """
-fusion.py
+===============================================================================
 
-Agent 10 — Threat Intelligence Fusion Engine
+Gen2X Security Engineering Platform
 
-Purpose
--------
-Combine normalized observations from multiple threat-intelligence providers
-into one deterministic, provider-independent security assessment.
+Module:
+    fusion.py
 
-Processing model
-----------------
+Agent:
+    Fusion Agent
 
-    ProviderResult[]
-            |
-            v
-    EvidenceAggregator
-            |
-            v
-      ThreatEvidence
-            |
-            v
-    ThreatPolicyEngine
-            |
-            v
-       ThreatSummary
+Part I:
+    Evidence Collection
 
-Architectural boundaries
-------------------------
+===============================================================================
 
-This module:
+Business Objective
+-------------------------------------------------------------------------------
 
-    - Aggregates normalized provider observations
-    - Preserves supporting evidence
-    - Calculates confidence
-    - Calculates risk
-    - Assigns investigation priority
-    - Produces a provider-independent summary
+Security providers observe the world.
 
-This module does NOT:
+Fusion understands it.
 
-    - Call external threat-intelligence APIs
-    - Write to DynamoDB
-    - Invoke Amazon Bedrock
-    - Generate PDF reports
-    - Perform automated remediation
-    - Modify infrastructure
+Every provider specializes in collecting one type of information.
 
-Providers collect facts.
+Examples include:
 
-The fusion engine converts those facts into an assessment.
+    • VirusTotal
+    • Wiz
+    • GuardDuty
+    • Security Hub
+    • AWS Inspector
+    • GitHub Secret Scanning
+    • Weak TLS Scanner
+    • Internal Asset Inventory
+
+Unfortunately...
+
+Every provider also speaks a different language.
+
+VirusTotal returns one schema.
+
+GuardDuty returns another.
+
+GitHub returns another.
+
+Wiz returns another.
+
+Fusion should never need to understand every API.
+
+Instead, every provider translates its findings into one common evidence
+model.
+
+Fusion reasons about evidence.
+
+Not provider implementations.
+
+-------------------------------------------------------------------------------
+
+Fusion Pipeline
+
+                    Providers
+
+                         │
+
+        ┌────────────────┼────────────────┐
+
+        ▼                ▼                ▼
+
+   VirusTotal       GitHub        GuardDuty
+
+        ▼                ▼                ▼
+
+                ThreatEvidence
+
+                        ▼
+
+             EvidenceAggregator
+
+                        ▼
+
+             ThreatCorrelation
+
+                        ▼
+
+             ThreatClassifier
+
+                        ▼
+
+          ThreatAssessmentEngine
+
+                        ▼
+
+                ThreatSummary
+
+                        ▼
+
+                  report.py
+
+-------------------------------------------------------------------------------
+
+Responsibilities
+
+Fusion intentionally separates investigation into three stages.
+
+Part I
+
+    Collect evidence.
+
+Part II
+
+    Reason about evidence.
+
+Part III
+
+    Communicate conclusions.
+
+This file implements Part I.
+
+Part I is responsible for:
+
+    • Normalizing provider output
+
+    • Preserving provider provenance
+
+    • Recording observations
+
+    • Validating evidence
+
+    • Organizing evidence
+
+Part I deliberately avoids:
+
+    • Threat classification
+
+    • Final severity calculation
+
+    • Confidence calculation
+
+    • Response recommendations
+
+    • Executive reporting
+
+Those responsibilities belong to later stages.
+
+-------------------------------------------------------------------------------
+
+Architectural Philosophy
+
+Every provider answers one question.
+
+"What did I observe?"
+
+Fusion answers a different question.
+
+"What does all of this mean?"
+
+That separation allows providers to remain independent while Fusion
+remains reusable.
+
+New providers should never require Fusion to be rewritten.
+
+Only new translators should be added.
+
+-------------------------------------------------------------------------------
+
+Example
+
+Provider Output
+
+        Wiz
+
+            ↓
+
+    Deprecated Library
+
+            ↓
+
+ThreatEvidence(
+    provider="wiz",
+    condition=ThreatCondition.DEPRECATED_LIBRARY,
+    severity=ThreatSeverity.HIGH,
+    confidence=ThreatConfidence.OBSERVED,
+)
+
+Provider Output
+
+        GitHub
+
+            ↓
+
+Exposed Secret
+
+            ↓
+
+ThreatEvidence(
+    provider="github",
+    condition=ThreatCondition.TOKEN_EXPOSURE,
+    severity=ThreatSeverity.CRITICAL,
+    confidence=ThreatConfidence.VALIDATED,
+)
+
+Fusion now receives identical objects.
+
+The provider no longer matters.
+
+Only the evidence matters.
+
+===============================================================================
+
+Chewbacca's Commentary 🐾
+
+Imagine interviewing witnesses.
+
+One speaks English.
+
+One speaks Japanese.
+
+One speaks Klingon.
+
+One speaks...
+
+whatever printers speak.
+
+Before detectives compare stories,
+someone must translate them into
+one common language.
+
+That's exactly what Part I does.
+
+Fusion doesn't care
+where evidence came from.
+
+Fusion cares
+that every observation
+arrives speaking
+the same language.
+
+Professional investigations
+begin with organized evidence.
+
+Not conclusions.
+
+                                — Chewbacca
+                                  Chief Wookiee Architect
+
+===============================================================================
 """
 
 from __future__ import annotations
 
-import logging
-
-from dataclasses import asdict, dataclass, field
+from collections import Counter
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
-from statistics import mean
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Any
+from uuid import uuid4
+
+from models.enums import (
+    IndicatorSource,
+    IndicatorType,
+    ProviderStatus,
+    ProviderTrustLevel,
+    ThreatCondition,
+    ThreatConfidence,
+    ThreatSeverity,
+)
 
 
-LOGGER = logging.getLogger(__name__)
+# =============================================================================
+# Shared Helpers
+# =============================================================================
 
 
-# ============================================================
-# SECTION 1
-# ENUMERATIONS
-#
-# These enumerations constrain the values that the fusion
-# engine may produce.
-#
-# Using enums prevents inconsistent strings such as:
-#
-#     "High"
-#     "HIGH"
-#     "high"
-#
-# All downstream agents receive predictable values.
-# ============================================================
-
-
-class RiskLevel(str, Enum):
-    """Normalized risk levels produced by the fusion engine."""
-
-    UNKNOWN = "UNKNOWN"
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-
-class PriorityLevel(str, Enum):
-    """Normalized investigation priorities."""
-
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-
-class ProviderStatus(str, Enum):
-    """Expected provider-result statuses."""
-
-    SUCCESS = "SUCCESS"
-    NOT_FOUND = "NOT_FOUND"
-    ERROR = "ERROR"
-
-
-# ============================================================
-# SECTION 2
-# PROVIDER RESULT CONTRACT
-#
-# The provider package may already contain a ProviderResult
-# dataclass.
-#
-# This Protocol describes only the fields required by the
-# fusion engine.
-#
-# The fusion engine therefore remains loosely coupled to the
-# provider implementation.
-# ============================================================
-
-
-class ProviderResultProtocol(Protocol):
+def utc_now() -> datetime:
     """
-    Minimum provider-result interface required by fusion.py.
+    Return the current timezone-aware UTC timestamp.
 
-    Any object with these attributes may be processed by the
-    fusion engine.
+    Every evidence object within Gen2X should use UTC.
+
+    Consistent timestamps make evidence easier to correlate across
+    providers, cloud platforms, and geographic regions.
     """
 
-    provider: str
-    indicator_id: str
-    indicator: str
-    indicator_type: str
-    status: str
-    retrieved_at: str
-    data: Mapping[str, Any]
-    error: str | None
+    return datetime.now(timezone.utc)
 
 
-# ============================================================
-# SECTION 3
-# SUPPORTING EVIDENCE MODELS
+# =============================================================================
+# Chewbacca's Commentary 🐾
 #
-# ProviderEvidence records how each provider participated in
-# the investigation.
+# Security investigations
+# eventually become
 #
-# It preserves provenance without exposing every provider's
-# entire raw response in the final summary.
-# ============================================================
+# timelines.
+#
+# One minute
+#
+# may explain
+#
+# an entire incident.
+#
+# Bad timestamps
+#
+# create
+#
+# bad investigations.
+#
+# Computers
+# don't naturally agree
+# what time it is.
+#
+# Engineers
+# make them agree.
+#
+# =============================================================================
 
 
-@dataclass(frozen=True)
-class ProviderEvidence:
+# =============================================================================
+# Threat Evidence
+# =============================================================================
+
+
+@dataclass(slots=True)
+class ThreatEvidence:
     """
-    Audit-friendly record describing one provider contribution.
+    Represents one normalized observation produced by one provider.
+
+    ThreatEvidence answers one question:
+
+        "What did this provider observe?"
+
+    Every provider within Gen2X returns the same object.
+
+    Providers collect.
+
+    Fusion reasons.
+
+    Reports communicate.
+
+    Separating those responsibilities keeps the platform modular,
+    extensible, and easier to maintain.
     """
 
-    provider: str
-    status: str
-    retrieved_at: str | None
+    # -------------------------------------------------------------------------
+    # Evidence Identity
+    # -------------------------------------------------------------------------
 
-    confidence: int | None = None
-    risk: str | None = None
+    evidence_id: str = field(default_factory=lambda: str(uuid4()))
 
-    contributed_techniques: tuple[str, ...] = ()
-    contributed_cves: tuple[str, ...] = ()
+    # -------------------------------------------------------------------------
+    # Provider Information
+    # -------------------------------------------------------------------------
 
-    known_exploited: bool = False
-    error: str | None = None
+    provider_name: str = ""
+
+    provider_status: ProviderStatus = ProviderStatus.UNKNOWN
+
+    provider_trust: ProviderTrustLevel = ProviderTrustLevel.UNKNOWN
+
+    # -------------------------------------------------------------------------
+    # Indicator
+    # -------------------------------------------------------------------------
+
+    indicator_value: str = ""
+
+    indicator_type: IndicatorType = IndicatorType.UNKNOWN
+
+    indicator_source: IndicatorSource = IndicatorSource.UNKNOWN
+
+    # -------------------------------------------------------------------------
+    # Provider Observation
+    # -------------------------------------------------------------------------
+
+    condition: ThreatCondition = ThreatCondition.UNKNOWN
+
+    severity: ThreatSeverity = ThreatSeverity.UNKNOWN
+
+    confidence: ThreatConfidence = ThreatConfidence.UNKNOWN
+
+    summary: str = ""
+
+    # -------------------------------------------------------------------------
+    # Time
+    # -------------------------------------------------------------------------
+
+    observed_at: datetime = field(default_factory=utc_now)
+
+    expires_at: datetime | None = None
+
+    # -------------------------------------------------------------------------
+    # Provider Context
+    # -------------------------------------------------------------------------
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    raw_reference: str | None = None
+
+    # =========================================================================
+    # Validation
+    # =========================================================================
+
+    def __post_init__(self) -> None:
+        """
+        Validate the structural integrity of the evidence object.
+
+        Validation ensures consistency.
+
+        It does not determine whether the provider is correct.
+        """
+
+        self.provider_name = self.provider_name.strip()
+        self.indicator_value = self.indicator_value.strip()
+        self.summary = self.summary.strip()
+
+        if not self.provider_name:
+            raise ValueError("provider_name cannot be empty")
+
+        if not self.indicator_value:
+            raise ValueError("indicator_value cannot be empty")
+
+        if self.observed_at.tzinfo is None:
+            raise ValueError("observed_at must be timezone-aware")
+
+        if (
+            self.expires_at is not None
+            and self.expires_at <= self.observed_at
+        ):
+            raise ValueError(
+                "expires_at must occur after observed_at"
+            )
+
+    # =========================================================================
+    # Evidence State
+    # =========================================================================
+
+    @property
+    def is_expired(self) -> bool:
+        """Return True if the evidence has expired."""
+
+        return (
+            self.expires_at is not None
+            and utc_now() >= self.expires_at
+        )
+
+    @property
+    def provider_succeeded(self) -> bool:
+        """Return True if the provider completed successfully."""
+
+        return self.provider_status in {
+            ProviderStatus.SUCCESS,
+            ProviderStatus.PARTIAL_SUCCESS,
+        }
+
+    @property
+    def is_usable(self) -> bool:
+        """
+        Determine whether this evidence may participate in analysis.
+
+        Part II performs additional reasoning.
+
+        Part I simply determines whether the evidence is structurally
+        usable.
+        """
+
+        return (
+            self.provider_succeeded
+            and not self.is_expired
+            and self.condition != ThreatCondition.UNKNOWN
+        )
+
+    # =========================================================================
+    # Serialization
+    # =========================================================================
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable dictionary."""
+        """
+        Convert the evidence object into a JSON-serializable dictionary.
+        """
 
-        result = asdict(self)
+        return {
+            "evidence_id": self.evidence_id,
+            "provider_name": self.provider_name,
+            "provider_status": self.provider_status.value,
+            "provider_trust": self.provider_trust.value,
+            "indicator_value": self.indicator_value,
+            "indicator_type": self.indicator_type.value,
+            "indicator_source": self.indicator_source.value,
+            "condition": self.condition.value,
+            "severity": self.severity.value,
+            "confidence": self.confidence.value,
+            "summary": self.summary,
+            "observed_at": self.observed_at.isoformat(),
+            "expires_at": (
+                self.expires_at.isoformat()
+                if self.expires_at
+                else None
+            ),
+            "metadata": dict(self.metadata),
+            "raw_reference": self.raw_reference,
+        }
 
-        result["contributed_techniques"] = list(
-            self.contributed_techniques
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Every provider
+# believes
+# it is the center
+# of the universe.
+#
+# It isn't.
+#
+# VirusTotal
+# knows VirusTotal.
+#
+# Wiz
+# knows Wiz.
+#
+# GitHub
+# knows GitHub.
+#
+# GuardDuty
+# knows GuardDuty.
+#
+# Fusion knows
+#
+# evidence.
+#
+# Great architectures
+# don't force
+# every component
+# to speak
+# the same language.
+#
+# They create
+# a common language
+# everyone shares.
+#
+# That's what
+# ThreatEvidence
+# becomes.
+#
+#                              — Chewbacca
+#                                Chief Wookiee Architect
+#
+# =============================================================================
+
+# =============================================================================
+#
+# Part II — Threat Reasoning
+#
+# =============================================================================
+#
+# Business Objective
+# -----------------------------------------------------------------------------
+#
+# Part I collected evidence.
+#
+# Part II transforms that evidence into deterministic security analysis.
+#
+# Fusion intentionally separates reasoning into four independent stages.
+#
+#     Evidence Selection
+#
+#             ↓
+#
+#     Threat Correlation
+#
+#             ↓
+#
+#     Threat Classification
+#
+#             ↓
+#
+#     Threat Assessment
+#
+# Each stage answers one architectural question.
+#
+# This separation keeps Fusion explainable, testable, and easy to extend.
+#
+# Unlike many security products, Fusion intentionally avoids "magic scores."
+#
+# Every recommendation can be traced back to explicit evidence.
+#
+# =============================================================================
+
+from dataclasses import dataclass, field
+from uuid import uuid4
+
+from models.enums import (
+    ThreatAssessment,
+    ThreatCondition,
+    ThreatConfidence,
+    ThreatDomain,
+    ThreatSeverity,
+    ThreatType,
+)
+
+
+# =============================================================================
+# Assessment Result
+# =============================================================================
+
+
+@dataclass(slots=True)
+class AssessmentResult:
+    """
+    Represents the deterministic conclusion produced by Fusion.
+
+    AssessmentResult forms the contract between:
+
+        Part II
+            Threat Reasoning
+
+    and
+
+        Part III
+            Threat Communication
+
+    The object intentionally contains structured data rather than prose.
+
+    Report generation and Bedrock explanations occur later.
+    """
+
+    assessment_id: str = field(default_factory=lambda: str(uuid4()))
+
+    threat_type: ThreatType = ThreatType.UNKNOWN
+
+    threat_domain: ThreatDomain = ThreatDomain.UNKNOWN
+
+    conditions: list[ThreatCondition] = field(default_factory=list)
+
+    severity: ThreatSeverity = ThreatSeverity.UNKNOWN
+
+    confidence: ThreatConfidence = ThreatConfidence.UNKNOWN
+
+    assessment: ThreatAssessment = ThreatAssessment.UNKNOWN
+
+    rationale: list[str] = field(default_factory=list)
+
+    supporting_evidence: list[ThreatEvidence] = field(default_factory=list)
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# =============================================================================
+# Evidence Selector
+# =============================================================================
+
+
+class EvidenceSelector:
+    """
+    Select evidence eligible for deterministic reasoning.
+
+    EvidenceSelector answers one question:
+
+        "Which evidence deserves to participate?"
+
+    Responsibilities
+    ----------------
+
+        ✓ Remove expired evidence
+
+        ✓ Remove failed provider results
+
+        ✓ Filter duplicate observations
+
+        ✓ Apply minimum provider trust
+
+        ✓ Group related evidence
+
+    This class deliberately performs no threat analysis.
+    """
+
+    def select(
+        self,
+        aggregator: EvidenceAggregator,
+    ) -> list[ThreatEvidence]:
+        """
+        Return evidence eligible for analysis.
+        """
+
+        usable = []
+
+        for evidence in aggregator.usable():
+
+            if evidence.provider_trust == ProviderTrustLevel.UNTRUSTED:
+                continue
+
+            usable.append(evidence)
+
+        return usable
+
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# More evidence
+#
+# does not automatically mean
+#
+# better evidence.
+#
+# One verified observation
+#
+# is often worth more
+#
+# than twenty stale reports.
+#
+# Great investigations
+#
+# begin by deciding
+#
+# what deserves attention.
+#
+# =============================================================================
+
+
+# =============================================================================
+# Threat Correlation
+# =============================================================================
+
+
+@dataclass(slots=True)
+class CorrelationGroup:
+    """
+    Represents evidence believed to belong to the same investigation.
+    """
+
+    correlation_id: str = field(default_factory=lambda: str(uuid4()))
+
+    evidence: list[ThreatEvidence] = field(default_factory=list)
+
+    rationale: list[str] = field(default_factory=list)
+
+
+class ThreatCorrelation:
+    """
+    Correlate observations that appear related.
+
+    ThreatCorrelation answers:
+
+        "Which observations belong together?"
+
+    Correlation identifies relationships.
+
+    Correlation does not determine guilt.
+    """
+
+    def correlate(
+        self,
+        evidence: list[ThreatEvidence],
+    ) -> list[CorrelationGroup]:
+        """
+        Produce correlation groups.
+
+        Sample implementation.
+
+        Students are encouraged to experiment with additional correlation
+        strategies.
+        """
+
+        groups = []
+
+        #
+        # Placeholder implementation.
+        #
+        # Future labs may correlate by:
+        #
+        #   • Identity
+        #   • Asset
+        #   • Repository
+        #   • Account
+        #   • Time Window
+        #   • Provider Agreement
+        #
+
+        return groups
+
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Correlation
+#
+# explains
+#
+# relationships.
+#
+# It does not explain
+#
+# intent.
+#
+# Two events
+#
+# occurring together
+#
+# may simply have
+#
+# terrible timing.
+#
+# Engineers should always
+#
+# explain
+#
+# why evidence
+#
+# was grouped.
+#
+# =============================================================================
+
+
+# =============================================================================
+# Threat Classifier
+# =============================================================================
+
+
+class ThreatClassifier:
+    """
+    Translate correlated evidence into the Gen2X threat vocabulary.
+
+    ThreatClassifier answers:
+
+        "What kind of security problem
+        best describes this investigation?"
+    """
+
+    CONDITION_TYPE_MAP = {
+
+        ThreatCondition.UNUSED_ACCOUNT:
+            ThreatType.IDENTITY_EXPOSURE,
+
+        ThreatCondition.UNUSED_TOKEN:
+            ThreatType.IDENTITY_EXPOSURE,
+
+        ThreatCondition.TOKEN_EXPOSURE:
+            ThreatType.IDENTITY_EXPOSURE,
+
+        ThreatCondition.DEPRECATED_LIBRARY:
+            ThreatType.VULNERABILITY_EXPOSURE,
+
+        ThreatCondition.EXPOSED_ENDPOINT:
+            ThreatType.MISCONFIGURATION,
+
+    }
+
+    CONDITION_DOMAIN_MAP = {
+
+        ThreatCondition.UNUSED_ACCOUNT:
+            ThreatDomain.IDENTITY,
+
+        ThreatCondition.UNUSED_TOKEN:
+            ThreatDomain.IDENTITY,
+
+        ThreatCondition.TOKEN_EXPOSURE:
+            ThreatDomain.IDENTITY,
+
+        ThreatCondition.DEPRECATED_LIBRARY:
+            ThreatDomain.APPLICATION,
+
+        ThreatCondition.EXPOSED_ENDPOINT:
+            ThreatDomain.API,
+
+    }
+
+    def classify(
+        self,
+        group: CorrelationGroup,
+    ) -> tuple[ThreatType, ThreatDomain]:
+        """
+        Return the deterministic threat classification.
+
+        Sample implementation.
+
+        Future labs may extend these mapping tables without changing the
+        Fusion architecture.
+        """
+
+        return (
+            ThreatType.UNKNOWN,
+            ThreatDomain.UNKNOWN,
         )
-        result["contributed_cves"] = list(
-            self.contributed_cves
-        )
+
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Classification
+#
+# gives evidence
+#
+# a name.
+#
+# Naming
+#
+# creates order.
+#
+# It does not create
+#
+# certainty.
+#
+# Classification
+#
+# is vocabulary.
+#
+# Assessment
+#
+# is judgment.
+#
+# =============================================================================
+
+
+# =============================================================================
+# Threat Assessment Engine
+# =============================================================================
+
+
+class ThreatAssessmentEngine:
+    """
+    Produce deterministic threat assessments.
+
+    ThreatAssessmentEngine answers:
+
+        • How severe?
+
+        • How confident?
+
+        • What recommendation?
+    """
+
+    def assess(
+        self,
+        group: CorrelationGroup,
+    ) -> AssessmentResult:
+        """
+        Produce the deterministic assessment.
+
+        Sample implementation.
+
+        Future labs may implement organization-specific assessment
+        policies here.
+        """
+
+        result = AssessmentResult()
+
+        #
+        # Example policy.
+        #
+        # Future assessment matrices may consider:
+        #
+        #   • Multiple provider agreement
+        #   • Provider trust
+        #   • Asset criticality
+        #   • Internet exposure
+        #   • Identity exposure
+        #   • Secret exposure
+        #   • Known exploitation
+        #
+
+        result.severity = ThreatSeverity.UNKNOWN
+
+        result.confidence = ThreatConfidence.UNKNOWN
+
+        result.assessment = ThreatAssessment.UNKNOWN
 
         return result
 
 
-# ============================================================
-# SECTION 4
-# THREAT EVIDENCE MODEL
+# =============================================================================
+# Chewbacca's Commentary 🐾
 #
-# ThreatEvidence contains facts only.
+# Dashboards
 #
-# It contains no risk decision, no priority decision, and no
-# recommendation.
+# love
 #
-# This separation allows another policy engine to evaluate the
-# same evidence differently.
-# ============================================================
-
-
-@dataclass
-class ThreatEvidence:
-    """
-    Normalized evidence gathered from all provider results.
-
-    This object represents observations, not conclusions.
-    """
-
-    providers_consulted: set[str] = field(default_factory=set)
-
-    successful_providers: set[str] = field(default_factory=set)
-    not_found_providers: set[str] = field(default_factory=set)
-    failed_providers: set[str] = field(default_factory=set)
-
-    techniques: set[str] = field(default_factory=set)
-    cves: set[str] = field(default_factory=set)
-
-    confidence_scores: list[int] = field(default_factory=list)
-    abuse_scores: list[int] = field(default_factory=list)
-
-    provider_risks: list[str] = field(default_factory=list)
-
-    known_exploited: bool = False
-    ransomware_associated: bool = False
-    tor_observed: bool = False
-    whitelisted: bool = False
-
-    total_reports: int = 0
-    distinct_reporting_users: int = 0
-
-    provider_evidence: dict[str, ProviderEvidence] = field(
-        default_factory=dict
-    )
-
-    warnings: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """
-        Return a deterministic, JSON-serializable representation.
-
-        Sets are sorted so repeated processing produces stable output.
-        """
-
-        return {
-            "providers_consulted": sorted(self.providers_consulted),
-            "successful_providers": sorted(self.successful_providers),
-            "not_found_providers": sorted(self.not_found_providers),
-            "failed_providers": sorted(self.failed_providers),
-            "techniques": sorted(self.techniques),
-            "cves": sorted(self.cves),
-            "confidence_scores": list(self.confidence_scores),
-            "abuse_scores": list(self.abuse_scores),
-            "provider_risks": list(self.provider_risks),
-            "known_exploited": self.known_exploited,
-            "ransomware_associated": self.ransomware_associated,
-            "tor_observed": self.tor_observed,
-            "whitelisted": self.whitelisted,
-            "total_reports": self.total_reports,
-            "distinct_reporting_users": (
-                self.distinct_reporting_users
-            ),
-            "provider_evidence": {
-                provider: evidence.to_dict()
-                for provider, evidence in sorted(
-                    self.provider_evidence.items()
-                )
-            },
-            "warnings": list(self.warnings),
-        }
-
-
-# ============================================================
-# SECTION 5
-# THREAT SUMMARY MODEL
+# one score.
 #
-# ThreatSummary is the public output of fusion.py.
+# Engineers
 #
-# Future agents should consume this object instead of reading
-# provider-specific schemas.
-# ============================================================
+# shouldn't.
+#
+# Severity answers:
+#
+#     "How bad?"
+#
+# Confidence answers:
+#
+#     "How sure?"
+#
+# Assessment answers:
+#
+#     "What recommendation
+#      is justified?"
+#
+# Three questions.
+#
+# Three answers.
+#
+# Keep them separate.
+#
+# Future-you,
+#
+# reviewing
+# an incident
+#
+# at 2:17 AM,
+#
+# will appreciate
+# the difference.
+#
+# =============================================================================
+
+# =============================================================================
+#
+# Part III — Threat Communication
+#
+# =============================================================================
+#
+# Business Objective
+# -----------------------------------------------------------------------------
+#
+# Part I organized evidence.
+#
+# Part II transformed evidence into deterministic engineering reasoning.
+#
+# Part III communicates those engineering conclusions without changing them.
+#
+# Fusion intentionally separates:
+#
+#     Engineering
+#
+# from
+#
+#     Presentation.
+#
+# Reports,
+# dashboards,
+# PDFs,
+# Markdown,
+# Slack notifications,
+# Jira tickets,
+# ServiceNow incidents,
+# and AI-generated explanations
+#
+# are all communication mechanisms.
+#
+# None of them should alter the engineering conclusions produced by
+# Part II.
+#
+# -----------------------------------------------------------------------------
+#
+# Communication Pipeline
+#
+#             AssessmentResult
+#
+#                     │
+#
+#                     ▼
+#
+#          ThreatSummaryBuilder
+#
+#                     │
+#
+#                     ▼
+#
+#              ThreatSummary
+#
+#                     │
+#
+# ────────────────────┼──────────────────────────────────────────────
+#
+#                     ▼
+#
+#             NarrativeAdapter
+#
+#                     │
+#
+# ────────────────────┼──────────────────────────────────────────────
+#
+#                     ▼
+#
+#             SummaryExporter
+#
+#        ┌────────────┼─────────────┐
+#        ▼            ▼             ▼
+#
+#      JSON        Markdown        PDF
+#
+#        ▼            ▼             ▼
+#
+#     Slack        EventBridge     HTML
+#
+# -----------------------------------------------------------------------------
+#
+# Architectural Philosophy
+#
+# Communication should never modify engineering conclusions.
+#
+# It should only make them easier for humans to understand.
+#
+# Fusion produces structured understanding.
+#
+# Exporters determine presentation.
+#
+# =============================================================================
 
 
-@dataclass
+# =============================================================================
+# Threat Summary
+# =============================================================================
+
+
+@dataclass(slots=True)
 class ThreatSummary:
     """
-    Final provider-independent assessment produced by Agent 10.
+    Represents the complete engineering summary produced by Fusion.
+
+    ThreatSummary is the communication contract between Fusion and every
+    downstream component.
+
+    Report generators, AI services, dashboards, and notification systems all
+    consume this object.
+
+    None of those systems should modify the engineering conclusions.
     """
 
-    overall_risk: str = RiskLevel.UNKNOWN.value
-    overall_confidence: int = 0
-    recommended_priority: str = PriorityLevel.LOW.value
+    summary_id: str = field(default_factory=lambda: str(uuid4()))
 
-    known_exploited: bool = False
-    ransomware_associated: bool = False
+    title: str = ""
 
-    techniques: list[str] = field(default_factory=list)
-    cves: list[str] = field(default_factory=list)
+    executive_summary: str = ""
 
-    sources_consulted: int = 0
-    successful_sources: int = 0
-    not_found_sources: int = 0
-    failed_sources: int = 0
+    assessment: AssessmentResult = field(
+        default_factory=AssessmentResult
+    )
 
-    supporting_reasons: list[str] = field(default_factory=list)
-    limitations: list[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
 
-    analyzed_at: str = field(default_factory=lambda: utc_now_iso())
+    recommendations: list[str] = field(default_factory=list)
 
-    policy_version: str = "gen2x-threat-policy-v1"
+    evidence_count: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable summary."""
+    provider_count: int = 0
 
-        return asdict(self)
+    generated_at: datetime = field(default_factory=utc_now)
+
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
-# ============================================================
-# SECTION 6
-# POLICY CONFIGURATION
+# =============================================================================
+# Chewbacca's Commentary 🐾
 #
-# Thresholds are stored in a configuration object instead of
-# being scattered throughout the policy methods.
+# Reports
 #
-# An organization may later load these values from:
+# come in
 #
-#     - Environment variables
-#     - AWS Systems Manager Parameter Store
-#     - AWS AppConfig
-#     - A tenant-specific policy file
-# ============================================================
+# many formats.
+#
+# PDFs.
+#
+# Dashboards.
+#
+# Slack.
+#
+# ServiceNow.
+#
+# Jira.
+#
+# Email.
+#
+# Engineers
+#
+# should never
+#
+# rewrite
+#
+# an investigation
+#
+# simply because
+#
+# someone requested
+#
+# another output format.
+#
+# Build
+#
+# one
+#
+# complete summary.
+#
+# Everything else
+#
+# becomes formatting.
+#
+# =============================================================================
 
 
-@dataclass(frozen=True)
-class ThreatPolicy:
+# =============================================================================
+# Threat Summary Builder
+# =============================================================================
+
+
+class ThreatSummaryBuilder:
     """
-    Deterministic thresholds used by ThreatPolicyEngine.
+    Build a structured ThreatSummary.
+
+    Responsibilities
+    ----------------
+
+        ✓ Organize assessment results
+
+        ✓ Summarize findings
+
+        ✓ Generate recommendations
+
+        ✓ Count evidence
+
+        ✓ Preserve engineering reasoning
+
+    Does NOT
+
+        • Generate PDFs
+
+        • Generate Markdown
+
+        • Send Slack notifications
+
+        • Call Bedrock
+
+        • Create Jira tickets
     """
 
-    policy_version: str = "gen2x-threat-policy-v1"
-
-    high_abuse_score: int = 75
-    medium_abuse_score: int = 25
-
-    high_confidence: int = 85
-    medium_confidence: int = 60
-
-    high_report_count: int = 25
-    medium_report_count: int = 5
-
-    minimum_successful_sources_for_high_confidence: int = 2
-
-    known_exploited_risk: RiskLevel = RiskLevel.HIGH
-    known_exploited_priority: PriorityLevel = PriorityLevel.CRITICAL
-
-    ransomware_priority: PriorityLevel = PriorityLevel.CRITICAL
-
-    tor_minimum_risk: RiskLevel = RiskLevel.MEDIUM
-
-
-# ============================================================
-# SECTION 7
-# EVIDENCE AGGREGATOR
-#
-# EvidenceAggregator converts many provider-specific results
-# into one normalized ThreatEvidence object.
-#
-# It collects facts.
-#
-# It does not calculate overall risk or investigation priority.
-# ============================================================
-
-
-class EvidenceAggregator:
-    """
-    Aggregate provider observations into normalized evidence.
-    """
-
-    def aggregate(
+    def build(
         self,
-        provider_results: Iterable[ProviderResultProtocol],
-    ) -> ThreatEvidence:
-        """
-        Process provider results and return one ThreatEvidence object.
-
-        A provider failure does not terminate fusion. Failures are
-        recorded so the final summary can describe incomplete coverage.
-        """
-
-        evidence = ThreatEvidence()
-
-        for result in provider_results:
-            self._process_result(result, evidence)
-
-        return evidence
-
-    def _process_result(
-        self,
-        result: ProviderResultProtocol,
-        evidence: ThreatEvidence,
-    ) -> None:
-        """Process one provider result."""
-
-        provider_name = normalize_provider_name(result.provider)
-        status = normalize_status(result.status)
-        data = safe_mapping(result.data)
-
-        evidence.providers_consulted.add(provider_name)
-
-        if status == ProviderStatus.SUCCESS.value:
-            evidence.successful_providers.add(provider_name)
-
-        elif status == ProviderStatus.NOT_FOUND.value:
-            evidence.not_found_providers.add(provider_name)
-
-        else:
-            evidence.failed_providers.add(provider_name)
-
-        techniques = extract_techniques(data)
-        cves = extract_cves(
-            data=data,
-            indicator=getattr(result, "indicator", None),
-            indicator_type=getattr(result, "indicator_type", None),
-        )
-
-        evidence.techniques.update(techniques)
-        evidence.cves.update(cves)
-
-        confidence = extract_confidence(data)
-
-        if confidence is not None:
-            evidence.confidence_scores.append(confidence)
-
-        abuse_score = extract_integer(
-            data.get("abuse_confidence_score"),
-            minimum=0,
-            maximum=100,
-        )
-
-        if abuse_score is not None:
-            evidence.abuse_scores.append(abuse_score)
-
-            # An AbuseIPDB score is itself a confidence-like signal.
-            # Including it here allows sources without a generic
-            # "confidence" field to contribute to overall confidence.
-            evidence.confidence_scores.append(abuse_score)
-
-        provider_risk = normalize_risk(data.get("risk"))
-
-        if provider_risk is not None:
-            evidence.provider_risks.append(provider_risk)
-
-        known_exploited = bool(data.get("known_exploited", False))
-
-        if known_exploited:
-            evidence.known_exploited = True
-
-        ransomware_associated = extract_ransomware_association(data)
-
-        if ransomware_associated:
-            evidence.ransomware_associated = True
-
-        if data.get("is_tor") is True:
-            evidence.tor_observed = True
-
-        if data.get("is_whitelisted") is True:
-            evidence.whitelisted = True
-
-        total_reports = extract_integer(
-            data.get("total_reports"),
-            minimum=0,
-        )
-
-        if total_reports is not None:
-            evidence.total_reports += total_reports
-
-        distinct_users = extract_integer(
-            data.get("distinct_reporting_users"),
-            minimum=0,
-        )
-
-        if distinct_users is not None:
-            evidence.distinct_reporting_users += distinct_users
-
-        provider_evidence = ProviderEvidence(
-            provider=provider_name,
-            status=status,
-            retrieved_at=getattr(result, "retrieved_at", None),
-            confidence=confidence,
-            risk=provider_risk,
-            contributed_techniques=tuple(sorted(techniques)),
-            contributed_cves=tuple(sorted(cves)),
-            known_exploited=known_exploited,
-            error=getattr(result, "error", None),
-        )
-
-        evidence.provider_evidence[provider_name] = provider_evidence
-
-        if status == ProviderStatus.ERROR.value:
-            error_message = getattr(result, "error", None)
-
-            warning = f"{provider_name} did not return usable intelligence."
-
-            if error_message:
-                warning = f"{warning} Error: {error_message}"
-
-            evidence.warnings.append(warning)
-
-
-# ============================================================
-# SECTION 8
-# THREAT POLICY ENGINE
-#
-# ThreatPolicyEngine converts facts into decisions.
-#
-# This is where the organization expresses its security policy.
-#
-# Every decision remains deterministic and explainable.
-# ============================================================
-
-
-class ThreatPolicyEngine:
-    """
-    Evaluate normalized evidence using deterministic policy rules.
-    """
-
-    def __init__(
-        self,
-        policy: ThreatPolicy | None = None,
-    ) -> None:
-        self.policy = policy or ThreatPolicy()
-
-    def evaluate(
-        self,
-        evidence: ThreatEvidence,
+        assessment: AssessmentResult,
     ) -> ThreatSummary:
         """
-        Convert ThreatEvidence into a ThreatSummary.
+        Construct the communication model.
+
+        Sample implementation.
+
+        Future labs may enrich this summary using organizational
+        requirements while preserving the underlying engineering
+        conclusions.
         """
 
-        confidence = self.calculate_confidence(evidence)
+        summary = ThreatSummary()
 
-        risk, risk_reasons = self.calculate_risk(
-            evidence=evidence,
-            overall_confidence=confidence,
+        summary.assessment = assessment
+
+        summary.title = (
+            f"{assessment.threat_type.value} Investigation"
         )
 
-        priority, priority_reasons = self.calculate_priority(
-            evidence=evidence,
-            risk=risk,
+        summary.executive_summary = (
+            "Deterministic threat assessment completed."
         )
 
-        limitations = self.build_limitations(evidence)
+        summary.findings = list(assessment.rationale)
 
-        return ThreatSummary(
-            overall_risk=risk.value,
-            overall_confidence=confidence,
-            recommended_priority=priority.value,
-            known_exploited=evidence.known_exploited,
-            ransomware_associated=evidence.ransomware_associated,
-            techniques=sorted(evidence.techniques),
-            cves=sorted(evidence.cves),
-            sources_consulted=len(evidence.providers_consulted),
-            successful_sources=len(evidence.successful_providers),
-            not_found_sources=len(evidence.not_found_providers),
-            failed_sources=len(evidence.failed_providers),
-            supporting_reasons=risk_reasons + priority_reasons,
-            limitations=limitations,
-            policy_version=self.policy.policy_version,
-        )
-
-    def calculate_confidence(
-        self,
-        evidence: ThreatEvidence,
-    ) -> int:
-        """
-        Calculate the overall confidence score.
-
-        Initial instructional model:
-
-            1. Average available confidence signals.
-            2. Increase confidence when several successful providers
-               corroborate the investigation.
-            3. Reduce confidence when provider failures limit coverage.
-            4. Clamp the final result between 0 and 100.
-
-        This is intentionally understandable and auditable.
-
-        A later lab may replace this with weighted-source confidence.
-        """
-
-        valid_scores = [
-            score
-            for score in evidence.confidence_scores
-            if 0 <= score <= 100
+        summary.recommendations = [
+            assessment.assessment.describe()
+            if hasattr(assessment.assessment, "describe")
+            else assessment.assessment.value
         ]
 
-        if valid_scores:
-            confidence = round(mean(valid_scores))
-        else:
-            confidence = self._infer_confidence_without_scores(
-                evidence
-            )
-
-        successful_count = len(evidence.successful_providers)
-        failed_count = len(evidence.failed_providers)
-
-        if (
-            successful_count
-            >= self.policy.minimum_successful_sources_for_high_confidence
-        ):
-            confidence += 5
-
-        if evidence.known_exploited:
-            confidence = max(confidence, 90)
-
-        if evidence.ransomware_associated:
-            confidence = max(confidence, 90)
-
-        confidence -= failed_count * 5
-
-        return clamp_integer(confidence, minimum=0, maximum=100)
-
-    def calculate_risk(
-        self,
-        *,
-        evidence: ThreatEvidence,
-        overall_confidence: int,
-    ) -> tuple[RiskLevel, list[str]]:
-        """
-        Calculate overall risk and preserve the rules that caused it.
-
-        Rule ordering matters.
-
-        Stronger evidence is evaluated first.
-        """
-
-        reasons: list[str] = []
-
-        # ----------------------------------------------------
-        # Rule 1:
-        # CISA KEV or equivalent known-exploitation evidence.
-        # ----------------------------------------------------
-
-        if evidence.known_exploited:
-            reasons.append(
-                "The vulnerability appears in a known-exploited "
-                "vulnerability source."
-            )
-
-            return self.policy.known_exploited_risk, reasons
-
-        # ----------------------------------------------------
-        # Rule 2:
-        # Ransomware association.
-        # ----------------------------------------------------
-
-        if evidence.ransomware_associated:
-            reasons.append(
-                "Threat intelligence associates the vulnerability "
-                "or indicator with ransomware activity."
-            )
-
-            return RiskLevel.HIGH, reasons
-
-        # ----------------------------------------------------
-        # Rule 3:
-        # High IP abuse confidence.
-        # ----------------------------------------------------
-
-        maximum_abuse_score = max(
-            evidence.abuse_scores,
-            default=0,
+        summary.evidence_count = len(
+            assessment.supporting_evidence
         )
 
-        if maximum_abuse_score >= self.policy.high_abuse_score:
-            reasons.append(
-                "At least one provider returned a high abuse "
-                f"confidence score of {maximum_abuse_score}."
-            )
-
-            return RiskLevel.HIGH, reasons
-
-        # ----------------------------------------------------
-        # Rule 4:
-        # Provider explicitly returned high or critical risk.
-        # ----------------------------------------------------
-
-        normalized_provider_risks = {
-            risk.upper()
-            for risk in evidence.provider_risks
-        }
-
-        if RiskLevel.CRITICAL.value in normalized_provider_risks:
-            reasons.append(
-                "A provider classified the indicator as CRITICAL."
-            )
-
-            return RiskLevel.CRITICAL, reasons
-
-        if RiskLevel.HIGH.value in normalized_provider_risks:
-            reasons.append(
-                "A provider classified the indicator as HIGH risk."
-            )
-
-            return RiskLevel.HIGH, reasons
-
-        # ----------------------------------------------------
-        # Rule 5:
-        # Repeated independent abuse reports.
-        # ----------------------------------------------------
-
-        if evidence.total_reports >= self.policy.high_report_count:
-            reasons.append(
-                "The indicator has a high volume of independent "
-                f"abuse reports: {evidence.total_reports}."
-            )
-
-            return RiskLevel.HIGH, reasons
-
-        # ----------------------------------------------------
-        # Rule 6:
-        # Medium abuse score, multiple reports, or strong
-        # confidence with supporting behavioral evidence.
-        # ----------------------------------------------------
-
-        if maximum_abuse_score >= self.policy.medium_abuse_score:
-            reasons.append(
-                "At least one provider returned a medium abuse "
-                f"confidence score of {maximum_abuse_score}."
-            )
-
-            return RiskLevel.MEDIUM, reasons
-
-        if evidence.total_reports >= self.policy.medium_report_count:
-            reasons.append(
-                "The indicator has multiple independent abuse "
-                f"reports: {evidence.total_reports}."
-            )
-
-            return RiskLevel.MEDIUM, reasons
-
-        if (
-            overall_confidence >= self.policy.high_confidence
-            and evidence.techniques
-        ):
-            reasons.append(
-                "High-confidence intelligence is accompanied by "
-                "mapped adversary techniques."
-            )
-
-            return RiskLevel.MEDIUM, reasons
-
-        # ----------------------------------------------------
-        # Rule 7:
-        # TOR alone is suspicious context, but not sufficient
-        # to declare an indicator malicious.
-        # ----------------------------------------------------
-
-        if evidence.tor_observed:
-            reasons.append(
-                "The indicator is associated with TOR infrastructure."
-            )
-
-            return self.policy.tor_minimum_risk, reasons
-
-        # ----------------------------------------------------
-        # Rule 8:
-        # Whitelisting may lower risk, but it must not override
-        # stronger evidence evaluated above.
-        # ----------------------------------------------------
-
-        if evidence.whitelisted:
-            reasons.append(
-                "A provider identified the indicator as whitelisted "
-                "and no stronger malicious evidence was present."
-            )
-
-            return RiskLevel.LOW, reasons
-
-        # ----------------------------------------------------
-        # Rule 9:
-        # No strong malicious evidence.
-        # ----------------------------------------------------
-
-        if evidence.successful_providers:
-            reasons.append(
-                "Providers returned intelligence, but no configured "
-                "high-risk condition was satisfied."
-            )
-
-            return RiskLevel.LOW, reasons
-
-        reasons.append(
-            "No successful provider supplied sufficient intelligence "
-            "to determine risk."
-        )
-
-        return RiskLevel.UNKNOWN, reasons
-
-    def calculate_priority(
-        self,
-        *,
-        evidence: ThreatEvidence,
-        risk: RiskLevel,
-    ) -> tuple[PriorityLevel, list[str]]:
-        """
-        Calculate investigation priority.
-
-        Risk and priority are intentionally separate.
-
-        Risk describes the observed threat.
-
-        Priority describes how urgently the organization should act.
-        """
-
-        reasons: list[str] = []
-
-        if evidence.known_exploited:
-            reasons.append(
-                "Known exploitation requires immediate investigation."
-            )
-
-            return self.policy.known_exploited_priority, reasons
-
-        if evidence.ransomware_associated:
-            reasons.append(
-                "Ransomware association requires immediate investigation."
-            )
-
-            return self.policy.ransomware_priority, reasons
-
-        if risk == RiskLevel.CRITICAL:
-            reasons.append(
-                "Critical risk requires immediate investigation."
-            )
-
-            return PriorityLevel.CRITICAL, reasons
-
-        if risk == RiskLevel.HIGH:
-            reasons.append(
-                "High-risk intelligence requires expedited investigation."
-            )
-
-            return PriorityLevel.HIGH, reasons
-
-        if risk == RiskLevel.MEDIUM:
-            reasons.append(
-                "Medium-risk intelligence should enter the standard "
-                "SOC investigation queue."
-            )
-
-            return PriorityLevel.MEDIUM, reasons
-
-        reasons.append(
-            "The current assessment does not require expedited response."
-        )
-
-        return PriorityLevel.LOW, reasons
-
-    def build_limitations(
-        self,
-        evidence: ThreatEvidence,
-    ) -> list[str]:
-        """
-        Describe incomplete coverage and interpretation limits.
-        """
-
-        limitations = list(evidence.warnings)
-
-        if not evidence.providers_consulted:
-            limitations.append(
-                "No threat-intelligence providers were consulted."
-            )
-
-        if not evidence.successful_providers:
-            limitations.append(
-                "No provider returned a successful intelligence result."
-            )
-
-        if evidence.not_found_providers:
-            limitations.append(
-                "A provider reporting NOT_FOUND does not prove that "
-                "the indicator is benign."
-            )
-
-        if evidence.failed_providers:
-            limitations.append(
-                "The assessment may be incomplete because one or more "
-                "providers failed."
-            )
-
-        if not evidence.confidence_scores:
-            limitations.append(
-                "No provider supplied a numeric confidence score; "
-                "confidence was inferred from available evidence."
-            )
-
-        return deduplicate_strings(limitations)
-
-    @staticmethod
-    def _infer_confidence_without_scores(
-        evidence: ThreatEvidence,
-    ) -> int:
-        """
-        Infer a conservative confidence value when providers do not
-        expose numeric confidence scores.
-        """
-
-        if evidence.known_exploited:
-            return 90
-
-        successful_count = len(evidence.successful_providers)
-
-        if successful_count >= 3:
-            return 75
-
-        if successful_count == 2:
-            return 65
-
-        if successful_count == 1:
-            return 50
-
-        return 0
-
-
-# ============================================================
-# SECTION 9
-# INTELLIGENCE FUSION ENGINE
-#
-# This is the public orchestration interface.
-#
-# Most callers need only:
-#
-#     fusion_engine = IntelligenceFusionEngine()
-#     summary = fusion_engine.fuse(results)
-# ============================================================
-
-
-class IntelligenceFusionEngine:
-    """
-    Coordinate evidence aggregation and policy evaluation.
-    """
-
-    def __init__(
-        self,
-        *,
-        aggregator: EvidenceAggregator | None = None,
-        policy_engine: ThreatPolicyEngine | None = None,
-    ) -> None:
-        self.aggregator = aggregator or EvidenceAggregator()
-        self.policy_engine = (
-            policy_engine or ThreatPolicyEngine()
-        )
-
-    def fuse(
-        self,
-        provider_results: Iterable[ProviderResultProtocol],
-    ) -> ThreatSummary:
-        """
-        Produce one final summary from provider results.
-        """
-
-        results = list(provider_results)
-
-        LOGGER.info(
-            "Starting threat-intelligence fusion with %d provider results.",
-            len(results),
-        )
-
-        evidence = self.aggregator.aggregate(results)
-        summary = self.policy_engine.evaluate(evidence)
-
-        LOGGER.info(
-            (
-                "Threat-intelligence fusion completed: "
-                "risk=%s confidence=%d priority=%s"
-            ),
-            summary.overall_risk,
-            summary.overall_confidence,
-            summary.recommended_priority,
-        )
+        summary.provider_count = len({
+            evidence.provider_name
+            for evidence in assessment.supporting_evidence
+        })
 
         return summary
 
-    def fuse_with_evidence(
+
+# =============================================================================
+# Chewbacca's Commentary 🐾
+#
+# Fusion
+#
+# already knows
+#
+# what happened.
+#
+# This class
+#
+# simply prepares
+#
+# that understanding
+#
+# for humans.
+#
+# Communication
+#
+# should clarify.
+#
+# Never reinterpret.
+#
+# =============================================================================
+
+
+# =============================================================================
+# Narrative Adapter
+# =============================================================================
+
+
+class NarrativeAdapter:
+    """
+    Prepare deterministic engineering results for natural-language
+    explanation.
+
+    NarrativeAdapter does not perform analysis.
+
+    It prepares prompts for language models after engineering has
+    already reached a conclusion.
+
+    Python determines.
+
+    AI explains.
+    """
+
+    def create_prompt(
         self,
-        provider_results: Iterable[ProviderResultProtocol],
-    ) -> tuple[ThreatEvidence, ThreatSummary]:
+        summary: ThreatSummary,
+    ) -> str:
         """
-        Return both evidence and final summary.
+        Produce a prompt suitable for an LLM.
 
-        This method is useful for:
-
-            - Audit logs
-            - Report generation
-            - Unit tests
-            - Debugging
-            - Bedrock narrative grounding
+        The prompt contains engineering conclusions that should be
+        explained rather than reconsidered.
         """
 
-        results = list(provider_results)
+        return f"""
+Explain the following engineering assessment.
 
-        evidence = self.aggregator.aggregate(results)
-        summary = self.policy_engine.evaluate(evidence)
+Threat Type:
+    {summary.assessment.threat_type.value}
 
-        return evidence, summary
+Threat Domain:
+    {summary.assessment.threat_domain.value}
+
+Severity:
+    {summary.assessment.severity.value}
+
+Confidence:
+    {summary.assessment.confidence.value}
+
+Assessment:
+    {summary.assessment.assessment.value}
+
+Key Findings:
+
+{chr(10).join(f'- {finding}' for finding in summary.findings)}
+
+Produce an executive summary suitable for a security manager.
+
+Do not modify the engineering conclusions.
+"""
 
 
-# ============================================================
-# SECTION 10
-# EXTRACTION HELPERS
+# =============================================================================
+# Chewbacca's Commentary 🐾
 #
-# These functions isolate schema interpretation from the core
-# aggregation workflow.
+# AI
 #
-# When a provider adds a new normalized field, these helpers can
-# be expanded without rewriting the fusion engine.
-# ============================================================
-
-
-def extract_techniques(
-    data: Mapping[str, Any],
-) -> set[str]:
-    """
-    Extract MITRE ATT&CK technique identifiers from known fields.
-    """
-
-    techniques: set[str] = set()
-
-    possible_values = [
-        data.get("matched_technique_ids"),
-        data.get("technique_ids"),
-        data.get("techniques"),
-    ]
-
-    for value in possible_values:
-        if not isinstance(value, list):
-            continue
-
-        for item in value:
-            if isinstance(item, str):
-                normalized = normalize_technique_id(item)
-
-                if normalized:
-                    techniques.add(normalized)
-
-            elif isinstance(item, Mapping):
-                technique_id = item.get("technique_id")
-
-                if isinstance(technique_id, str):
-                    normalized = normalize_technique_id(
-                        technique_id
-                    )
-
-                    if normalized:
-                        techniques.add(normalized)
-
-    return techniques
-
-
-def extract_cves(
-    *,
-    data: Mapping[str, Any],
-    indicator: str | None,
-    indicator_type: str | None,
-) -> set[str]:
-    """
-    Extract CVE identifiers from provider data and indicator metadata.
-    """
-
-    cves: set[str] = set()
-
-    direct_cve = data.get("cve_id")
-
-    if isinstance(direct_cve, str):
-        normalized = normalize_cve(direct_cve)
-
-        if normalized:
-            cves.add(normalized)
-
-    list_values = [
-        data.get("cves"),
-        data.get("related_cves"),
-    ]
-
-    for value in list_values:
-        if not isinstance(value, list):
-            continue
-
-        for item in value:
-            if not isinstance(item, str):
-                continue
-
-            normalized = normalize_cve(item)
-
-            if normalized:
-                cves.add(normalized)
-
-    if (
-        isinstance(indicator_type, str)
-        and indicator_type.upper() == "CVE"
-        and isinstance(indicator, str)
-    ):
-        normalized = normalize_cve(indicator)
-
-        if normalized:
-            cves.add(normalized)
-
-    return cves
-
-
-def extract_confidence(
-    data: Mapping[str, Any],
-) -> int | None:
-    """
-    Extract a normalized confidence score from provider data.
-    """
-
-    confidence_fields = (
-        "confidence",
-        "confidence_score",
-        "overall_confidence",
-        "malicious_confidence",
-    )
-
-    for field_name in confidence_fields:
-        value = extract_integer(
-            data.get(field_name),
-            minimum=0,
-            maximum=100,
-        )
-
-        if value is not None:
-            return value
-
-    return None
-
-
-def extract_ransomware_association(
-    data: Mapping[str, Any],
-) -> bool:
-    """
-    Interpret normalized ransomware-association fields.
-    """
-
-    boolean_value = data.get("ransomware_associated")
-
-    if boolean_value is True:
-        return True
-
-    campaign_value = data.get(
-        "known_ransomware_campaign_use"
-    )
-
-    if not isinstance(campaign_value, str):
-        return False
-
-    normalized = campaign_value.strip().lower()
-
-    return normalized in {
-        "known",
-        "yes",
-        "true",
-        "confirmed",
-    }
-
-
-# ============================================================
-# SECTION 11
-# NORMALIZATION HELPERS
+# is an excellent
 #
-# These helpers make malformed or inconsistent provider values
-# safe for deterministic processing.
-# ============================================================
-
-
-def normalize_provider_name(value: Any) -> str:
-    """Normalize a provider name for evidence keys."""
-
-    if not isinstance(value, str):
-        return "unknown_provider"
-
-    normalized = value.strip().lower()
-
-    return normalized or "unknown_provider"
-
-
-def normalize_status(value: Any) -> str:
-    """Normalize a provider status."""
-
-    if not isinstance(value, str):
-        return ProviderStatus.ERROR.value
-
-    normalized = value.strip().upper()
-
-    allowed = {
-        status.value
-        for status in ProviderStatus
-    }
-
-    if normalized not in allowed:
-        return ProviderStatus.ERROR.value
-
-    return normalized
-
-
-def normalize_risk(value: Any) -> str | None:
-    """Normalize a provider risk label."""
-
-    if not isinstance(value, str):
-        return None
-
-    normalized = value.strip().upper()
-
-    allowed = {
-        risk.value
-        for risk in RiskLevel
-    }
-
-    if normalized not in allowed:
-        return None
-
-    return normalized
-
-
-def normalize_technique_id(value: str) -> str | None:
-    """
-    Normalize a MITRE ATT&CK technique identifier.
-
-    Examples:
-
-        T1110
-        T1110.001
-    """
-
-    normalized = value.strip().upper()
-
-    if not normalized.startswith("T"):
-        return None
-
-    identifier = normalized[1:]
-
-    if not identifier:
-        return None
-
-    components = identifier.split(".")
-
-    if not all(component.isdigit() for component in components):
-        return None
-
-    return normalized
-
-
-def normalize_cve(value: str) -> str | None:
-    """
-    Normalize a CVE identifier.
-
-    Example:
-
-        CVE-2021-44228
-    """
-
-    normalized = value.strip().upper()
-    components = normalized.split("-")
-
-    if len(components) != 3:
-        return None
-
-    prefix, year, identifier = components
-
-    if prefix != "CVE":
-        return None
-
-    if not year.isdigit() or len(year) != 4:
-        return None
-
-    if not identifier.isdigit():
-        return None
-
-    return normalized
-
-
-def safe_mapping(value: Any) -> Mapping[str, Any]:
-    """Return a mapping or an empty dictionary."""
-
-    if isinstance(value, Mapping):
-        return value
-
-    return {}
-
-
-def extract_integer(
-    value: Any,
-    *,
-    minimum: int | None = None,
-    maximum: int | None = None,
-) -> int | None:
-    """
-    Safely convert a value to an integer and validate its range.
-    """
-
-    if value is None or isinstance(value, bool):
-        return None
-
-    try:
-        converted = int(value)
-    except (TypeError, ValueError):
-        return None
-
-    if minimum is not None and converted < minimum:
-        return None
-
-    if maximum is not None and converted > maximum:
-        return None
-
-    return converted
-
-
-def clamp_integer(
-    value: int,
-    *,
-    minimum: int,
-    maximum: int,
-) -> int:
-    """Constrain an integer to an inclusive range."""
-
-    return max(minimum, min(maximum, value))
-
-
-def deduplicate_strings(
-    values: Iterable[str],
-) -> list[str]:
-    """Remove duplicate strings while preserving their order."""
-
-    return list(dict.fromkeys(values))
-
-
-def utc_now_iso() -> str:
-    """Return the current UTC time in ISO-8601 format."""
-
-    return (
-        datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
-# ============================================================
-# SECTION 12
-# CONVENIENCE FUNCTION
+# communicator.
 #
-# This helper supports callers that do not need to customize the
-# aggregator or policy engine.
-# ============================================================
+# It should never
+#
+# become
+#
+# the investigator.
+#
+# Fusion
+#
+# reaches
+#
+# the conclusion.
+#
+# AI
+#
+# explains
+#
+# the conclusion.
+#
+# That's assistance.
+#
+# Not delegation.
+#
+# =============================================================================
 
 
-def fuse_provider_results(
-    provider_results: Iterable[ProviderResultProtocol],
-    *,
-    policy: ThreatPolicy | None = None,
-) -> ThreatSummary:
+# =============================================================================
+# Summary Exporter
+# =============================================================================
+
+
+class SummaryExporter:
     """
-    Fuse provider results using the default fusion pipeline.
+    Base class for all communication exporters.
 
-    Example:
+    Exporters change presentation.
 
-        summary = fuse_provider_results(results)
+    They never change engineering meaning.
 
-        print(summary.overall_risk)
-        print(summary.recommended_priority)
+    Future implementations may include:
+
+        • JSON
+
+        • Markdown
+
+        • PDF
+
+        • HTML
+
+        • Slack
+
+        • EventBridge
+
+        • ServiceNow
+
+        • Jira
+
+        • Teams
+
+    Fusion remains completely independent from those implementations.
     """
 
-    engine = IntelligenceFusionEngine(
-        policy_engine=ThreatPolicyEngine(policy),
-    )
+    def export(
+        self,
+        summary: ThreatSummary,
+    ) -> Any:
+        """
+        Export a ThreatSummary.
 
-    return engine.fuse(provider_results)
+        Derived classes implement the desired presentation format.
+        """
+
+        raise NotImplementedError
+
+
+# =============================================================================
+#
+# Architect's Reflection
+#
+# Fusion is not a reporting engine.
+#
+# Fusion is not an AI agent.
+#
+# Fusion is an engineering reasoning engine.
+#
+# Providers observe.
+#
+# Fusion understands.
+#
+# Reports explain.
+#
+# Engineers decide.
+#
+# Every stage exists to preserve engineering integrity while making
+# complex security investigations easier to understand.
+#
+# Communication should improve understanding.
+#
+# It should never change truth.
+#
+# The platform recommends.
+#
+# Accountability remains human.
+#
+#                              — Chewbacca
+#                                Chief Wookiee Architect
+#
+# =============================================================================
