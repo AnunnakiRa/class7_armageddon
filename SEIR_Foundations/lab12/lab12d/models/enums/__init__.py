@@ -322,6 +322,27 @@ from .response_enums import (
 )
 
 # =============================================================================
+# Cache Enumerations
+# =============================================================================
+#
+# Enumerations describing cached evidence: what is stored, who may reuse it,
+# retrieval strategy, lookup status, freshness, storage, ownership, and
+# operation results.
+#
+# =============================================================================
+
+from .cache_enums import (
+    CacheType,
+    CacheScope,
+    CachePolicy,
+    CacheStatus,
+    CacheFreshness,
+    CacheStorage,
+    CacheOwnership,
+    CacheResult,
+)
+
+# =============================================================================
 # Public Package Interface
 # =============================================================================
 #
@@ -388,4 +409,17 @@ __all__ = [
     "ResponseStatus",
     "ResponseOutcome",
     "ResponseVerification",
+
+    # -------------------------------------------------------------------------
+    # Cache Enumerations
+    # -------------------------------------------------------------------------
+
+    "CacheType",
+    "CacheScope",
+    "CachePolicy",
+    "CacheStatus",
+    "CacheFreshness",
+    "CacheStorage",
+    "CacheOwnership",
+    "CacheResult",
 ]
