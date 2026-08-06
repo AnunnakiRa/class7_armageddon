@@ -281,6 +281,7 @@ from .provider_enums import (
     ProviderType,
     ProviderCapability,
     ProviderHealth,
+    ProviderTrustLevel,
 )
 
 # =============================================================================
@@ -292,10 +293,13 @@ from .provider_enums import (
 # =============================================================================
 
 from .report_enums import (
+    ReportType,
     ReportStatus,
+    ReportFormat,
+    ReportAudience,
     FindingSeverity,
     RecommendationPriority,
-    ReportFormat,
+    RecommendationCategory,
 )
 
 # =============================================================================
@@ -358,15 +362,19 @@ __all__ = [
     "ProviderType",
     "ProviderCapability",
     "ProviderHealth",
+    "ProviderTrustLevel",
 
     # -------------------------------------------------------------------------
     # Report Enumerations
     # -------------------------------------------------------------------------
 
+    "ReportType",
     "ReportStatus",
+    "ReportFormat",
+    "ReportAudience",
     "FindingSeverity",
     "RecommendationPriority",
-    "ReportFormat",
+    "RecommendationCategory",
 
     # -------------------------------------------------------------------------
     # Response Enumerations
