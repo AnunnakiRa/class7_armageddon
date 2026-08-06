@@ -123,7 +123,7 @@ The report should never change the investigation.
 It should only explain it.
 
                                 — Chewbacca
-                                  Chief Canine Architect
+                                  Chief Wookiee Architect
 
 ===============================================================================
 """
@@ -1031,6 +1031,6 @@ __all__ = [
 # It is about placing code where it belongs.
 #
 #                                — Chewbacca
-#                                  Chief Canine Architect
+#                                  Chief Wookiee Architect
 #
 # =============================================================================
