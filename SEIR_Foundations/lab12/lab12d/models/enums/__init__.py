@@ -343,6 +343,29 @@ from .cache_enums import (
 )
 
 # =============================================================================
+# Platform Enumerations
+# =============================================================================
+#
+# Enumerations describing the platform itself: architectural identity,
+# behavior, and operational state.
+#
+# =============================================================================
+
+from .platform_enums import (
+    PlatformRole,
+    PlatformResponsibility,
+    PlatformComponent,
+    PlatformService,
+    PlatformCapability,
+    PlatformEnvironment,
+    PlatformDeployment,
+    PlatformLifecycle,
+    PlatformState,
+    PlatformHealth,
+    PlatformTrustLevel,
+)
+
+# =============================================================================
 # Public Package Interface
 # =============================================================================
 #
@@ -422,4 +445,20 @@ __all__ = [
     "CacheStorage",
     "CacheOwnership",
     "CacheResult",
+
+    # -------------------------------------------------------------------------
+    # Platform Enumerations
+    # -------------------------------------------------------------------------
+
+    "PlatformRole",
+    "PlatformResponsibility",
+    "PlatformComponent",
+    "PlatformService",
+    "PlatformCapability",
+    "PlatformEnvironment",
+    "PlatformDeployment",
+    "PlatformLifecycle",
+    "PlatformState",
+    "PlatformHealth",
+    "PlatformTrustLevel",
 ]
