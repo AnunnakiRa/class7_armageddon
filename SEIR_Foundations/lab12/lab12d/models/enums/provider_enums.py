@@ -395,6 +395,8 @@ class ProviderTrustLevel(Gen2XEnum):
 
     LOW = "LOW"
 
+    UNTRUSTED = "UNTRUSTED"
+
     EXPERIMENTAL = "EXPERIMENTAL"
 
     UNKNOWN = "UNKNOWN"
