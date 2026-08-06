@@ -285,6 +285,29 @@ from .provider_enums import (
 )
 
 # =============================================================================
+# Threat Enumerations
+# =============================================================================
+#
+# Enumerations used by threat analysis: classification, location, observed
+# conditions, severity, confidence, assessment, investigation workflow,
+# disposition, attribution, and activity patterns.
+#
+# =============================================================================
+
+from .threat_enums import (
+    ThreatType,
+    ThreatDomain,
+    ThreatCondition,
+    ThreatSeverity,
+    ThreatConfidence,
+    ThreatAssessment,
+    ThreatStatus,
+    ThreatDisposition,
+    ThreatActorType,
+    ThreatActivityPattern,
+)
+
+# =============================================================================
 # Report Enumerations
 # =============================================================================
 #
@@ -407,6 +430,21 @@ __all__ = [
     "ProviderCapability",
     "ProviderHealth",
     "ProviderTrustLevel",
+
+    # -------------------------------------------------------------------------
+    # Threat Enumerations
+    # -------------------------------------------------------------------------
+
+    "ThreatType",
+    "ThreatDomain",
+    "ThreatCondition",
+    "ThreatSeverity",
+    "ThreatConfidence",
+    "ThreatAssessment",
+    "ThreatStatus",
+    "ThreatDisposition",
+    "ThreatActorType",
+    "ThreatActivityPattern",
 
     # -------------------------------------------------------------------------
     # Report Enumerations
