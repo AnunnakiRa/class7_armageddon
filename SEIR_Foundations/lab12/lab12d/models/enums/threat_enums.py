@@ -411,95 +411,188 @@ class ThreatDomain(Gen2XEnum):
 
     def describe(self) -> str:
         """
-        Return a human-readable explanation of the threat domain.
+        Return a human-readable explanation of the identified
+        security condition.
+
+        Threat conditions describe observations made during
+        investigation.
+
+        They intentionally avoid making conclusions regarding
+        severity, confidence, or operational impact.
         """
 
-        descriptions = {
+     descriptions = {
 
-            ThreatDomain.IDENTITY:
-                "Identity and authentication systems.",
+            # -----------------------------------------------------------------
+            # Software
+            # -----------------------------------------------------------------
 
-            ThreatDomain.NETWORK:
-                "Networking infrastructure.",
+            ThreatCondition.DEPRECATED_LIBRARY:
+                "A software dependency is deprecated and should be upgraded.",
 
-            ThreatDomain.ENDPOINT:
-                "User devices and compute resources.",
+            ThreatCondition.VULNERABLE_LIBRARY:
+                "A dependency contains one or more known vulnerabilities.",
 
-            ThreatDomain.CLOUD:
-                "Cloud infrastructure and services.",
+            ThreatCondition.UNSUPPORTED_SOFTWARE:
+                "Software is no longer supported by its vendor.",
 
-            ThreatDomain.SERVERLESS:
-                "Serverless applications and functions.",
+            ThreatCondition.OUTDATED_RUNTIME:
+                "Runtime version is outdated and should be updated.",
 
-            ThreatDomain.CONTAINER:
-                "Containerized workloads.",
+            ThreatCondition.UNPATCHED_VULNERABILITY:
+                "Known security patches have not yet been applied.",
 
-            ThreatDomain.KUBERNETES:
-                "Kubernetes orchestration environments.",
+            # -----------------------------------------------------------------
+            # Application Exposure
+            # -----------------------------------------------------------------
 
-            ThreatDomain.APPLICATION:
-                "Applications and business services.",
+            ThreatCondition.EXPOSED_ENDPOINT:
+                "An endpoint is exposed to unintended access.",
 
-            ThreatDomain.API:
-                "Application Programming Interfaces.",
+            ThreatCondition.PUBLIC_ENDPOINT:
+                "A service endpoint is publicly accessible.",
 
-            ThreatDomain.DATABASE:
-                "Database systems.",
+            ThreatCondition.UNAUTHENTICATED_ENDPOINT:
+                "An endpoint permits access without authentication.",
 
-            ThreatDomain.STORAGE:
-                "Storage services and repositories.",
+            ThreatCondition.INTERNET_EXPOSED_RESOURCE:
+                "A resource is directly accessible from the public Internet.",
 
-            ThreatDomain.EMAIL:
-                "Messaging infrastructure.",
+            ThreatCondition.OVERLY_PERMISSIVE_NETWORK_ACCESS:
+                "Network permissions exceed operational requirements.",
 
-            ThreatDomain.DNS:
-                "Domain Name System services.",
+            # -----------------------------------------------------------------
+            # Identity
+            # -----------------------------------------------------------------
 
-            ThreatDomain.SUPPLY_CHAIN:
-                "Software supply chain dependencies.",
+            ThreatCondition.UNUSED_ACCOUNT:
+                "An account exists but shows little or no recent activity.",
 
-            ThreatDomain.OTHER:
-                "Application-defined security domain.",
+            ThreatCondition.DORMANT_ACCOUNT:
+                "An inactive account remains enabled.",
 
-            ThreatDomain.UNKNOWN:
-                "Threat domain has not yet been classified."
+            ThreatCondition.UNUSED_ACCESS_KEY:
+                "An access key has not been used within the expected period.",
+
+            ThreatCondition.STALE_CREDENTIAL:
+                "Credentials have exceeded the recommended rotation period.",
+
+            ThreatCondition.UNUSED_TOKEN:
+                "An authentication token exists but appears unused.",
+
+            ThreatCondition.LONG_LIVED_TOKEN:
+                "A token has remained valid longer than recommended.",
+
+            ThreatCondition.TOKEN_REUSE:
+                "Authentication token appears to have been reused.",
+
+            ThreatCondition.TOKEN_EXPOSURE:
+                "Authentication token may have been exposed.",
+
+            ThreatCondition.EXCESSIVE_PERMISSIONS:
+                "Permissions exceed the principle of least privilege.",
+
+            # -----------------------------------------------------------------
+            # Configuration
+            # -----------------------------------------------------------------
+
+            ThreatCondition.PUBLIC_STORAGE:
+                "Storage resource is publicly accessible.",
+
+            ThreatCondition.MISSING_ENCRYPTION:
+                "Encryption is missing or improperly configured.",
+
+            ThreatCondition.LOGGING_DISABLED:
+                "Logging required for monitoring has been disabled.",
+
+            ThreatCondition.MONITORING_DISABLED:
+                "Security monitoring is not currently active.",
+
+            ThreatCondition.MISCONFIGURED_CONTROL:
+                "Security control configuration is incorrect.",
+
+            # -----------------------------------------------------------------
+            # General
+            # -----------------------------------------------------------------
+
+            ThreatCondition.OTHER:
+                "Application-defined security condition.",
+
+            ThreatCondition.UNKNOWN:
+                "Security condition has not yet been classified."
 
         }
 
         return descriptions[self]
 
 
+
 # =============================================================================
+#
 # Chewbacca's Commentary 🐾
 #
-# The same threat
+# Threat conditions
+# are observations.
 #
-# may appear
+# Not verdicts.
 #
-# in different domains.
+# Discovering
 #
-# Example:
+#     a deprecated library
 #
-# Identity Exposure
+# doesn't automatically mean
 #
-# may involve:
+#     compromise.
 #
-#     Cognito
+# Finding
 #
-#     IAM
+#     an exposed endpoint
 #
-#     Active Directory
+# doesn't automatically mean
 #
-# Same threat.
+#     exploitation.
 #
-# Different domains.
+# Identifying
 #
-# Architecture improves
-# when we describe
-# these ideas separately.
+#     an unused account
+#
+# doesn't automatically mean
+#
+#     malicious activity.
+#
+# Conditions describe
+#
+# what exists.
+#
+# Evidence determines
+#
+# what it means.
+#
+# Professional security engineers
+# resist the temptation
+# to confuse
+#
+#     findings
+#
+# with
+#
+#     conclusions.
+#
+# That's why this enumeration
+# exists separately from
+#
+# Severity,
+#
+# Confidence,
+#
+# and
+#
+# Assessment.
+#
+#                              — Chewbacca
+#                                Chief Wookiee Architect
 #
 # =============================================================================
-
 
 # =============================================================================
 # Threat Condition
