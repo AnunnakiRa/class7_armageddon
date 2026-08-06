@@ -119,6 +119,9 @@ support many different cloud providers.
 ===============================================================================
 """
 
+from .base_enum import Gen2XEnum
+
+
 class ResponseAction(Gen2XEnum):
     """
     Describes the recommended action.
@@ -266,6 +269,33 @@ class ResponseApproval(Gen2XEnum):
 # Good automation understands organizational policy.
 #
 # =============================================================================
+
+class ResponseOwner(Gen2XEnum):
+    """
+    Describes who is accountable for a response.
+
+    ResponseOwner answers:
+
+        "Who owns this action?"
+    """
+
+    SECURITY_ANALYST = "SECURITY_ANALYST"
+
+    SOC_TEAM = "SOC_TEAM"
+
+    INCIDENT_RESPONSE_TEAM = "INCIDENT_RESPONSE_TEAM"
+
+    PLATFORM_TEAM = "PLATFORM_TEAM"
+
+    APPLICATION_TEAM = "APPLICATION_TEAM"
+
+    AUTOMATION = "AUTOMATION"
+
+    EXTERNAL_PARTNER = "EXTERNAL_PARTNER"
+
+    UNASSIGNED = "UNASSIGNED"
+
+    UNKNOWN = "UNKNOWN"
 
 # =============================================================================
 #
