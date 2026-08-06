@@ -1312,37 +1312,6 @@ class PlatformTrustLevel(Gen2XEnum):
 
 
 # =============================================================================
-# Public Module Interface
-# =============================================================================
-
-__all__ = [
-
-    "PlatformRole",
-
-    "PlatformResponsibility",
-
-    "PlatformComponent",
-
-    "PlatformService",
-
-    "PlatformCapability",
-
-    "PlatformEnvironment",
-
-    "PlatformDeployment",
-
-    "PlatformLifecycle",
-
-    "PlatformState",
-
-    "PlatformHealth",
-
-    "PlatformTrustLevel",
-
-]
-
-
-# =============================================================================
 #
 # Architect's Reflection
 #
