@@ -78,11 +78,11 @@ than individual implementation modules.
 
 Correct
 
-    from models.enums import RiskLevel
+    from models.enums import ReportStatus
 
 Instead of
 
-    from models.enums.threat_enums import RiskLevel
+    from models.enums.report_enums import ReportStatus
 
 Why?
 
@@ -284,24 +284,6 @@ from .provider_enums import (
 )
 
 # =============================================================================
-# Threat Enumerations
-# =============================================================================
-#
-# Enumerations used by threat analysis and risk evaluation.
-#
-# These values provide a common language for expressing the severity,
-# confidence, and category of observed threats.
-#
-# =============================================================================
-
-from .threat_enums import (
-    RiskLevel,
-    ThreatCategory,
-    ThreatConfidence,
-    PriorityLevel,
-)
-
-# =============================================================================
 # Report Enumerations
 # =============================================================================
 #
@@ -320,42 +302,19 @@ from .report_enums import (
 # Response Enumerations
 # =============================================================================
 #
-# Enumerations representing API and workflow responses.
+# Enumerations representing the response planning and execution workflow.
 #
 # =============================================================================
 
 from .response_enums import (
+    ResponseAction,
+    ResponseMode,
+    ResponseApproval,
+    ResponseOwner,
+    ResponsePriority,
     ResponseStatus,
-    ResponseType,
-)
-
-# =============================================================================
-# Cache Enumerations
-# =============================================================================
-#
-# Enumerations describing cache operations and cache state.
-#
-# =============================================================================
-
-from .cache_enums import (
-    CacheStatus,
-    CachePolicy,
-    CacheOperation,
-)
-
-# =============================================================================
-# Platform Enumerations
-# =============================================================================
-#
-# Enumerations shared across the entire Gen2X platform.
-#
-# =============================================================================
-
-from .platform_enums import (
-    Environment,
-    ExecutionMode,
-    AgentStatus,
-    LogLevel,
+    ResponseOutcome,
+    ResponseVerification,
 )
 
 # =============================================================================
@@ -401,15 +360,6 @@ __all__ = [
     "ProviderHealth",
 
     # -------------------------------------------------------------------------
-    # Threat Enumerations
-    # -------------------------------------------------------------------------
-
-    "RiskLevel",
-    "ThreatCategory",
-    "ThreatConfidence",
-    "PriorityLevel",
-
-    # -------------------------------------------------------------------------
     # Report Enumerations
     # -------------------------------------------------------------------------
 
@@ -422,23 +372,12 @@ __all__ = [
     # Response Enumerations
     # -------------------------------------------------------------------------
 
+    "ResponseAction",
+    "ResponseMode",
+    "ResponseApproval",
+    "ResponseOwner",
+    "ResponsePriority",
     "ResponseStatus",
-    "ResponseType",
-
-    # -------------------------------------------------------------------------
-    # Cache Enumerations
-    # -------------------------------------------------------------------------
-
-    "CacheStatus",
-    "CachePolicy",
-    "CacheOperation",
-
-    # -------------------------------------------------------------------------
-    # Platform Enumerations
-    # -------------------------------------------------------------------------
-
-    "Environment",
-    "ExecutionMode",
-    "AgentStatus",
-    "LogLevel",
+    "ResponseOutcome",
+    "ResponseVerification",
 ]
